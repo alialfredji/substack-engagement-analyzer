@@ -14,14 +14,27 @@ export async function POST(request: Request) {
   }
 
   const encoder = new TextEncoder()
+  const scanController = new AbortController()
+  let streamClosed = false
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      const abortScan = () => scanController.abort()
+      request.signal.addEventListener("abort", abortScan, { once: true })
+
       const send = (event: ScanStreamEvent) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        if (streamClosed || scanController.signal.aborted) return
+
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        } catch {
+          streamClosed = true
+          scanController.abort()
+        }
       }
 
       void scanEngagement(input, {
-        signal: request.signal,
+        signal: scanController.signal,
         onProgress: (progress) => send({ type: "progress", progress }),
       })
         .then((result) => send({ type: "result", result }))
@@ -32,7 +45,21 @@ export async function POST(request: Request) {
             message: error instanceof Error ? error.message : "The scan could not be completed.",
           })
         })
-        .finally(() => controller.close())
+        .finally(() => {
+          request.signal.removeEventListener("abort", abortScan)
+          if (streamClosed) return
+
+          streamClosed = true
+          try {
+            controller.close()
+          } catch {
+            // The browser may have already cancelled the response stream.
+          }
+        })
+    },
+    cancel() {
+      streamClosed = true
+      scanController.abort()
     },
   })
 

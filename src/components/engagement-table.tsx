@@ -33,7 +33,7 @@ function initials(name: string) {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "—"
+  if (!value) return "–"
   return new Intl.DateTimeFormat("en", {
     day: "numeric",
     month: "short",

@@ -1,34 +1,30 @@
 "use client"
 
-import { FormEvent, useMemo, useRef, useState } from "react"
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIcon,
+  DownloadIcon,
   FileTextIcon,
   RadarIcon,
+  RefreshCcwIcon,
   StickyNoteIcon,
   XIcon,
 } from "lucide-react"
 
-import { EngagementTable } from "@/components/engagement-table"
+import { EngagementTable, type ReportView } from "@/components/engagement-table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import {
   Field,
   FieldDescription,
@@ -46,9 +42,13 @@ import type {
   ScanReport,
   ScanStreamEvent,
 } from "@/lib/substack/types"
+import {
+  readCachedScan,
+  readLatestCachedScan,
+  saveCachedScan,
+} from "@/lib/report-cache"
+import { csvFilename, reportToCsv } from "@/lib/report-export"
 import { cn } from "@/lib/utils"
-
-const EXAMPLES = ["lidiyawrites", "alialfredji", "kevinszabo14"]
 
 const DEFAULT_INPUT: ScanInput = {
   profileUrl: "https://substack.com/@alialfredji",
@@ -80,13 +80,58 @@ function formatDuration(milliseconds: number) {
   return `${Math.floor(milliseconds / 60_000)}m ${Math.round((milliseconds % 60_000) / 1_000)}s`
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value))
+}
+
+function formatDayRange(days: number) {
+  return `${days} ${days === 1 ? "day" : "days"}`
+}
+
+interface ReportState {
+  source: "cache" | "fresh"
+  savedAt: string
+  cacheSaved: boolean
+}
+
 export function EngagementDashboard() {
   const [input, setInput] = useState(DEFAULT_INPUT)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [report, setReport] = useState<ScanReport | null>(null)
+  const [reportState, setReportState] = useState<ReportState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [view, setView] = useState<ReportView>("combined")
   const abortRef = useRef<AbortController | null>(null)
+  const scanStartedAtRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const cached = readLatestCachedScan(window.localStorage)
+      if (!cached) return
+
+      setInput(cached.report.input)
+      setReport(cached.report)
+      setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!isScanning || scanStartedAtRef.current === null) return
+
+    const updateElapsed = () =>
+      setElapsedMs(Date.now() - (scanStartedAtRef.current ?? Date.now()))
+    updateElapsed()
+    const timer = window.setInterval(updateElapsed, 1_000)
+
+    return () => window.clearInterval(timer)
+  }, [isScanning])
 
   const totalEngagements = useMemo(
     () => report?.people.reduce((sum, person) => sum + person.combined.total, 0) ?? 0,
@@ -97,12 +142,25 @@ export function EngagementDashboard() {
     setInput((current) => ({ ...current, [key]: Number(value) }))
   }
 
-  const runScan = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const runScan = async (forceRefresh = false) => {
     setError(null)
-    setReport(null)
     setProgress(null)
+
+    if (!forceRefresh) {
+      const cached = readCachedScan(input, window.localStorage)
+      if (cached) {
+        setReport(cached.report)
+        setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
+        setView("combined")
+        return
+      }
+    }
+
+    setReport(null)
+    setReportState(null)
     setIsScanning(true)
+    setElapsedMs(0)
+    scanStartedAtRef.current = Date.now()
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -134,7 +192,16 @@ export function EngagementDashboard() {
           if (!line.trim()) continue
           const message = JSON.parse(line) as ScanStreamEvent
           if (message.type === "progress") setProgress(message.progress)
-          if (message.type === "result") setReport(message.result)
+          if (message.type === "result") {
+            const cached = saveCachedScan(message.result, window.localStorage)
+            setReport(message.result)
+            setReportState({
+              source: "fresh",
+              savedAt: cached?.savedAt ?? message.result.generatedAt,
+              cacheSaved: Boolean(cached),
+            })
+            setView("combined")
+          }
           if (message.type === "error") throw new Error(message.message)
         }
 
@@ -147,37 +214,55 @@ export function EngagementDashboard() {
         setError(scanError instanceof Error ? scanError.message : "The scan failed.")
       }
     } finally {
+      if (scanStartedAtRef.current !== null) {
+        setElapsedMs(Date.now() - scanStartedAtRef.current)
+      }
+      scanStartedAtRef.current = null
       abortRef.current = null
       setIsScanning(false)
     }
   }
 
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void runScan(false)
+  }
+
+  const exportCsv = () => {
+    if (!report) return
+
+    const blob = new Blob([reportToCsv(report, view)], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = csvFilename(report, view)
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-      <header className="flex flex-col gap-3">
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <header className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <RadarIcon aria-hidden="true" />
           <span className="text-sm font-medium">Signal Map</span>
-          <Badge variant="secondary">Public data</Badge>
         </div>
         <div className="flex max-w-3xl flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             Find the people who keep showing up.
           </h1>
-          <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Scan a Substack creator’s recent Notes and articles, then rank readers by likes,
-            comments, and restacks.
+          <p className="text-sm text-muted-foreground sm:text-base">
+            Rank the readers engaging with a creator’s recent Notes and articles.
           </p>
         </div>
       </header>
 
       <Card>
-        <form onSubmit={runScan}>
+        <form onSubmit={handleSubmit}>
           <CardHeader>
-            <CardTitle>New engagement scan</CardTitle>
-            <CardDescription>
-              Profile and publication links both work. Two weeks is a useful default.
-            </CardDescription>
+            <CardTitle>New scan</CardTitle>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -194,25 +279,6 @@ export function EngagementDashboard() {
                   required
                   aria-invalid={Boolean(error && !input.profileUrl)}
                 />
-                <FieldDescription className="flex flex-wrap items-center gap-1">
-                  <span>Try</span>
-                  {EXAMPLES.map((handle) => (
-                      <Button
-                        key={handle}
-                        type="button"
-                        variant="link"
-                        size="xs"
-                        onClick={() =>
-                          setInput((current) => ({
-                            ...current,
-                            profileUrl: `https://substack.com/@${handle}`,
-                          }))
-                        }
-                      >
-                        @{handle}
-                      </Button>
-                  ))}
-                </FieldDescription>
               </Field>
 
               <FieldGroup className="grid grid-cols-1 md:grid-cols-3">
@@ -226,7 +292,7 @@ export function EngagementDashboard() {
                     value={input.days}
                     onChange={(event) => setNumericInput("days", event.target.value)}
                   />
-                  <FieldDescription>1–90 days</FieldDescription>
+                  <FieldDescription>1-90</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="rpm">Requests per minute</FieldLabel>
@@ -238,7 +304,7 @@ export function EngagementDashboard() {
                     value={input.requestsPerMinute}
                     onChange={(event) => setNumericInput("requestsPerMinute", event.target.value)}
                   />
-                  <FieldDescription>Start at 40; raise gradually.</FieldDescription>
+                  <FieldDescription>10-120</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="concurrency">Parallel requests</FieldLabel>
@@ -250,15 +316,12 @@ export function EngagementDashboard() {
                     value={input.concurrency}
                     onChange={(event) => setNumericInput("concurrency", event.target.value)}
                   />
-                  <FieldDescription>Four is a safe default.</FieldDescription>
+                  <FieldDescription>1-8</FieldDescription>
                 </Field>
               </FieldGroup>
             </FieldGroup>
           </CardContent>
-          <CardFooter className="justify-between gap-3">
-            <p className="hidden text-xs text-muted-foreground sm:block">
-              Requests are globally paced even when work runs in parallel.
-            </p>
+          <CardFooter className="justify-end">
             {isScanning ? (
               <Button type="button" variant="outline" onClick={() => abortRef.current?.abort()}>
                 <XIcon data-icon="inline-start" />
@@ -274,18 +337,21 @@ export function EngagementDashboard() {
         </form>
       </Card>
 
-      {isScanning && progress ? (
+      {isScanning ? (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Spinner data-icon="inline-start" />
-              Scan in progress
-            </CardTitle>
-            <CardDescription>{progress.message}</CardDescription>
+            <CardTitle>Scan in progress</CardTitle>
+            <CardDescription>{progress?.message ?? "Starting scan"}</CardDescription>
+            <CardAction>
+              <Badge variant="secondary">
+                <Spinner data-icon="inline-start" />
+                {formatDuration(elapsedMs)}
+              </Badge>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <Progress value={progressValue(progress)}>
-              <ProgressLabel>{progress.phase}</ProgressLabel>
+              <ProgressLabel>{progress?.phase ?? "starting"}</ProgressLabel>
               <ProgressValue>
                 {(_formattedValue, value) => `${Math.round(value ?? 0)}%`}
               </ProgressValue>
@@ -293,8 +359,8 @@ export function EngagementDashboard() {
           </CardContent>
           <CardFooter>
             <p className="text-xs text-muted-foreground">
-              {progress.requests} requests started
-              {progress.total ? ` · ${progress.completed}/${progress.total} content items` : ""}
+              {progress?.requests ?? 0} requests
+              {progress?.total ? ` · ${progress.completed}/${progress.total} items` : ""}
             </p>
           </CardFooter>
         </Card>
@@ -307,22 +373,8 @@ export function EngagementDashboard() {
         </Alert>
       ) : null}
 
-      {!report && !isScanning && !error ? (
-        <Empty className="min-h-52 border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <ActivityIcon />
-            </EmptyMedia>
-            <EmptyTitle>Your report will appear here</EmptyTitle>
-            <EmptyDescription>
-              Results stay in this browser tab and link directly to each reader’s profile.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : null}
-
       {report ? (
-        <section className="flex flex-col gap-6" aria-labelledby="report-title">
+        <section className="flex flex-col gap-4" aria-labelledby="report-title">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <Avatar className="size-12">
@@ -333,47 +385,67 @@ export function EngagementDashboard() {
                 <h2 id="report-title" className="truncate text-xl font-semibold">
                   {report.target.name}
                 </h2>
-                <p className="truncate text-sm text-muted-foreground">
-                  {report.target.publicationName ?? report.target.handle ?? "Substack creator"} · last{" "}
-                  {report.input.days} days
-                </p>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span>{report.target.publicationName ?? report.target.handle ?? "Substack creator"}</span>
+                  <span>·</span>
+                  <span>{formatDayRange(report.input.days)}</span>
+                  <span>·</span>
+                  <span>{formatDuration(report.stats.durationMs)}</span>
+                  {reportState ? (
+                    <Badge variant={reportState.source === "cache" ? "secondary" : "outline"}>
+                      {reportState.source === "cache" ? "Cached" : reportState.cacheSaved ? "Saved" : "Not cached"}
+                    </Badge>
+                  ) : null}
+                </div>
+                {reportState ? (
+                  <p className="text-xs text-muted-foreground">
+                    {reportState.source === "cache" ? "Cached" : "Generated"} {formatDateTime(reportState.savedAt)}
+                  </p>
+                ) : null}
               </div>
             </div>
-            <a
-              href={report.target.profileUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-            >
-              Open profile
-            </a>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => void runScan(true)}>
+                <RefreshCcwIcon data-icon="inline-start" />
+                Rerun fresh
+              </Button>
+              <a
+                href={report.target.profileUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+              >
+                Open profile
+              </a>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[
-              ["People", report.people.length],
-              ["Engagements", totalEngagements],
-              ["Content scanned", report.stats.notesScanned + report.stats.articlesScanned],
-              ["Requests", report.stats.requests],
-            ].map(([label, value]) => (
-              <Card key={label}>
-                <CardHeader>
-                  <CardDescription>{label}</CardDescription>
-                  <CardTitle className="font-mono text-2xl">{value}</CardTitle>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
+          <Card size="sm">
+            <CardHeader className="sr-only">
+              <CardTitle>Scan summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                {[
+                  ["People", report.people.length],
+                  ["Engagements", totalEngagements],
+                  ["Content", report.stats.notesScanned + report.stats.articlesScanned],
+                  ["Requests", report.stats.requests],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex flex-col gap-1">
+                    <dt className="text-xs text-muted-foreground">{label}</dt>
+                    <dd className="text-xl font-semibold tabular-nums">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
 
           {report.warnings.length ? (
             <Alert>
-              <AlertTitle>Public-data limits</AlertTitle>
+              <AlertTitle>Public data</AlertTitle>
               <AlertDescription>
-                <ul className="flex list-disc flex-col gap-1 pl-4">
-                  {report.warnings.slice(0, 3).map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
+                Some reaction and restack totals may not expose every profile.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -381,13 +453,15 @@ export function EngagementDashboard() {
           <Card>
             <CardHeader>
               <CardTitle>Engagement leaderboard</CardTitle>
-              <CardDescription>
-                Score: comment 3 · restack 2 · like 1. “Last signal” uses the content date when
-                Substack does not expose the exact reaction time.
-              </CardDescription>
+              <CardAction>
+                <Button type="button" variant="outline" size="sm" onClick={exportCsv}>
+                  <DownloadIcon data-icon="inline-start" />
+                  Export CSV
+                </Button>
+              </CardAction>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="combined">
+              <Tabs value={view} onValueChange={(value) => setView(value as ReportView)}>
                 <TabsList variant="line">
                   <TabsTrigger value="combined">
                     <ActivityIcon data-icon="inline-start" />
@@ -419,8 +493,7 @@ export function EngagementDashboard() {
                 {report.stats.notesScanned} notes · {report.stats.articlesScanned} articles
               </span>
               <span>
-                {formatDuration(report.stats.durationMs)} · {report.stats.retries} retries ·{" "}
-                {report.stats.rateLimits} rate limits
+                {report.stats.retries} retries · {report.stats.rateLimits} rate limits
               </span>
             </CardFooter>
           </Card>

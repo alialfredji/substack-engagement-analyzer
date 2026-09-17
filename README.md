@@ -21,6 +21,8 @@ The server enforces one global start-rate limit even when several requests are i
 
 Results include combined, Notes-only, and articles-only rankings. The score weights comments at 3 points, restacks at 2, and likes at 1.
 
+Completed reports are saved in browser local storage. Running the same profile or publication URL with the same date range loads the cached report immediately; use **Rerun fresh** to bypass it. Up to six recent reports are retained. **Export CSV** downloads the currently selected Combined, Notes, or Articles view.
+
 Public Substack lists can expose fewer identities than their displayed totals, and some comment threads are gated. The report keeps both reported and enumerated coverage and shows a warning when they differ.
 
 ## Verify

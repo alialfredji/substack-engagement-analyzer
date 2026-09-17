@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Signal Map — Substack engagement scanner",
+  title: "Signal Map · Substack engagement scanner",
   description: "Find and rank the people engaging with a Substack creator's recent content.",
 };
 
