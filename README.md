@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Signal Map
 
-## Getting Started
+A small Substack engagement scanner built with Next.js, TypeScript, and Shadcn UI.
 
-First, run the development server:
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000), paste a Substack profile or publication URL, and choose:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Days to scan — defaults to 14.
+- Requests per minute — defaults to 40.
+- Parallel requests — defaults to 4.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The server enforces one global start-rate limit even when several requests are in flight. It retries HTTP 429 and transient upstream failures with bounded exponential backoff.
 
-## Learn More
+## Reports
 
-To learn more about Next.js, take a look at the following resources:
+Results include combined, Notes-only, and articles-only rankings. The score weights comments at 3 points, restacks at 2, and likes at 1.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Public Substack lists can expose fewer identities than their displayed totals, and some comment threads are gated. The report keeps both reported and enumerated coverage and shows a warning when they differ.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Verify
 
-## Deploy on Vercel
+```bash
+pnpm test
+pnpm lint
+pnpm build
+pnpm smoke https://substack.com/@alialfredji 1 60 4
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The smoke command accepts: profile URL, days, requests per minute, and concurrency.
