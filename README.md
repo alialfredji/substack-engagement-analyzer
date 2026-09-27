@@ -1,4 +1,4 @@
-# Signal Map
+# Substack Engagement Analyzer
 
 A small Substack engagement scanner built with Next.js, TypeScript, and Shadcn UI.
 
