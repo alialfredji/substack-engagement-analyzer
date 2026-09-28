@@ -1,29 +1,30 @@
-# Substack Engagement Analyzer
+# Substack Engagers
 
-A small Substack engagement scanner built with Next.js, TypeScript, and Shadcn UI.
+See who shows up for your writing. Substack Engagers ranks people engaging with a creator's public Notes and articles, with separate views for each format and a CSV export.
 
-## Run locally
+Built by [Ali Alfredji](https://substack.com/@alialfredji), author of [Modern Builder](https://alialf.substack.com). This is an independent project and is not affiliated with Substack.
+
+## Try it locally
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), paste a Substack profile or publication URL, and choose:
+Open [http://localhost:3000](http://localhost:3000), paste a Substack profile or publication URL, and start a scan. The default is 14 days, 50 requests per minute, and four parallel requests. You can choose a longer date range; requests per minute are capped at 60. Substack may rate limit public requests, so lower the request rate or parallel count if a scan slows down.
 
-- Days to scan — defaults to 14.
-- Requests per minute — defaults to 40.
-- Parallel requests — defaults to 4.
+Completed reports are kept in your browser's local storage and listed in the scrollable **Recent reports** sidebar. There is no app-imposed report count limit, though your browser's storage quota still applies. The cache is specific to the browser and device. **Rerun fresh** bypasses a saved report. Reaction and restack totals may exceed the number of public identities that Substack exposes; the report flags incomplete coverage.
 
-The server enforces one global start-rate limit even when several requests are in flight. It retries HTTP 429 and transient upstream failures with bounded exponential backoff.
+## Package for a Node server
 
-## Reports
+The app includes a standalone Next.js build, [Dockerfile](Dockerfile), [Compose file](compose.yaml), and `/api/health`. No credentials or database are required. For a local container test:
 
-Results include combined, Notes-only, and articles-only rankings. The score weights comments at 3 points, restacks at 2, and likes at 1.
+```bash
+docker build -t substack-engagers:local .
+docker run --rm -p 3000:3000 substack-engagers:local
+```
 
-Completed reports are saved in browser local storage. Running the same profile or publication URL with the same date range loads the cached report immediately; use **Rerun fresh** to bypass it. Up to six recent reports are retained. **Export CSV** downloads the currently selected Combined, Notes, or Articles view.
-
-Public Substack lists can expose fewer identities than their displayed totals, and some comment threads are gated. The report keeps both reported and enumerated coverage and shows a warning when they differ.
+The Compose file is ready for mac13's external `personal-server-edge` network and deliberately exposes no host port. Deploy and route it later through the personal-server control workflow. Run one app replica: the 60-request-per-minute cap is shared by scans in one Node process, not across multiple replicas.
 
 ## Verify
 
@@ -31,7 +32,11 @@ Public Substack lists can expose fewer identities than their displayed totals, a
 pnpm test
 pnpm lint
 pnpm build
-pnpm smoke https://substack.com/@alialfredji 1 60 4
+pnpm smoke https://substack.com/@alialfredji 1 50 4
 ```
 
-The smoke command accepts: profile URL, days, requests per minute, and concurrency.
+The smoke command accepts a profile URL, days, requests per minute, and concurrency. The scanner uses public Substack endpoints and can change if Substack changes them.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Copyright Ali Alfredji.

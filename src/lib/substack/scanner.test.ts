@@ -32,13 +32,13 @@ describe("normalizeInput", () => {
       normalizeInput({
         profileUrl: " https://substack.com/@alialfredji ",
         days: 200,
-        requestsPerMinute: 4,
+         requestsPerMinute: 120,
         concurrency: 99,
       }),
     ).toEqual({
       profileUrl: "https://substack.com/@alialfredji",
-      days: 90,
-      requestsPerMinute: 10,
+       days: 200,
+       requestsPerMinute: 60,
       concurrency: 8,
     })
   })
@@ -89,4 +89,3 @@ describe("aggregateEngagements", () => {
     expect(person.lastSignalAt).toBe("2026-09-16T10:00:00.000Z")
   })
 })
-

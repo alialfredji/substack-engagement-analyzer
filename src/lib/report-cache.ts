@@ -2,7 +2,6 @@ import type { ScanInput, ScanReport } from "@/lib/substack/types"
 
 const CACHE_PREFIX = "signal-map:report:v1:"
 const CACHE_INDEX_KEY = "signal-map:report-index:v1"
-const MAX_CACHED_REPORTS = 6
 
 type CacheStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">
 
@@ -75,14 +74,16 @@ export function readCachedScan(input: ScanInput, storage: CacheStorage) {
 }
 
 export function readLatestCachedScan(storage: CacheStorage) {
-  const entries = readIndex(storage).sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+  return listCachedScans(storage)[0] ?? null
+}
 
-  for (const entry of entries) {
-    const cached = parseCachedScan(storage.getItem(entry.key))
-    if (cached) return cached
-  }
-
-  return null
+export function listCachedScans(storage: CacheStorage): CachedScan[] {
+  return readIndex(storage)
+    .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+    .flatMap((entry) => {
+      const cached = parseCachedScan(storage.getItem(entry.key))
+      return cached ? [cached] : []
+    })
 }
 
 export function saveCachedScan(report: ScanReport, storage: CacheStorage) {
@@ -90,15 +91,11 @@ export function saveCachedScan(report: ScanReport, storage: CacheStorage) {
   const savedAt = report.generatedAt || new Date().toISOString()
   const cached: CachedScan = { version: 1, savedAt, report }
   const currentIndex = readIndex(storage).filter((entry) => entry.key !== key)
-  const nextIndex = [{ key, savedAt }, ...currentIndex].slice(0, MAX_CACHED_REPORTS)
+  const nextIndex = [{ key, savedAt }, ...currentIndex]
 
   try {
     storage.setItem(key, JSON.stringify(cached))
     storage.setItem(CACHE_INDEX_KEY, JSON.stringify(nextIndex))
-
-    for (const entry of currentIndex.slice(MAX_CACHED_REPORTS - 1)) {
-      storage.removeItem(entry.key)
-    }
 
     return cached
   } catch {

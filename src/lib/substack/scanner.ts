@@ -144,8 +144,8 @@ export function normalizeInput(input: ScanInput): ScanInput {
 
   return {
     profileUrl: input.profileUrl.trim(),
-    days: clampInteger(input.days, 1, 90, 14),
-    requestsPerMinute: clampInteger(input.requestsPerMinute, 10, 120, 40),
+    days: clampInteger(input.days, 1, 1_000_000, 14),
+    requestsPerMinute: clampInteger(input.requestsPerMinute, 10, 60, 50),
     concurrency: clampInteger(input.concurrency, 1, 8, 4),
   }
 }

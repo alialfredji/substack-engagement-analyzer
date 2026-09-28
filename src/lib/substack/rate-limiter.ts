@@ -66,6 +66,22 @@ function retryDelay(response: Response | null, attempt: number) {
   return exponential + Math.floor(Math.random() * 500)
 }
 
+// Shared by scans in this Node process. The mac13 Compose setup runs one app replica.
+let globalNextStartAt = 0
+let globalCooldownUntil = 0
+let globalPaceTail = Promise.resolve()
+
+async function paceGlobally(signal?: AbortSignal) {
+  const slot = globalPaceTail.then(async () => {
+    const delay = Math.max(0, globalNextStartAt - Date.now(), globalCooldownUntil - Date.now())
+    await wait(delay, signal)
+    globalNextStartAt = Date.now() + 1_000
+  })
+
+  globalPaceTail = slot.catch(() => undefined)
+  await slot
+}
+
 export class RequestScheduler {
   readonly stats: SchedulerStats = { requests: 0, retries: 0, rateLimits: 0 }
 
@@ -97,6 +113,7 @@ export class RequestScheduler {
 
     this.paceTail = slot.catch(() => undefined)
     await slot
+    await paceGlobally(this.options.signal)
   }
 
   private async request<T>(
@@ -140,6 +157,7 @@ export class RequestScheduler {
       const delay = retryDelay(response, attempt)
       if (response?.status === 429) {
         this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + delay)
+        globalCooldownUntil = Math.max(globalCooldownUntil, Date.now() + delay)
         this.intervalMs = Math.min(this.intervalMs * 1.25, 6_000)
       }
       this.options.onRetry?.(

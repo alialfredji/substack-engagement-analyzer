@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { cacheKeyForInput, readCachedScan, readLatestCachedScan, saveCachedScan } from "./report-cache"
+import { cacheKeyForInput, listCachedScans, readCachedScan, readLatestCachedScan, saveCachedScan } from "./report-cache"
 import type { ScanReport } from "./substack/types"
 
 class MemoryStorage {
@@ -70,5 +70,32 @@ describe("report cache", () => {
     expect(saveCachedScan(value, storage)).not.toBeNull()
     expect(readCachedScan(value.input, storage)?.report.target.name).toBe("Ali Alfredji")
     expect(readLatestCachedScan(storage)?.report.input.days).toBe(14)
+  })
+
+  it("lists retained reports newest first for the history panel", () => {
+    const storage = new MemoryStorage()
+    const older = { ...report("https://substack.com/@older"), generatedAt: "2026-09-16T12:00:00.000Z" }
+    const newer = report("https://substack.com/@newer")
+
+    saveCachedScan(older, storage)
+    saveCachedScan(newer, storage)
+
+    expect(listCachedScans(storage).map((entry) => entry.report.input.profileUrl)).toEqual([
+      "https://substack.com/@newer",
+      "https://substack.com/@older",
+    ])
+  })
+
+  it("keeps more than six different reports", () => {
+    const storage = new MemoryStorage()
+
+    for (let index = 0; index < 8; index += 1) {
+      saveCachedScan(
+        { ...report(`https://substack.com/@reader${index}`), generatedAt: `2026-09-${String(index + 10).padStart(2, "0")}T12:00:00.000Z` },
+        storage,
+      )
+    }
+
+    expect(listCachedScans(storage)).toHaveLength(8)
   })
 })

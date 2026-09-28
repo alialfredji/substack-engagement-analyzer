@@ -5,6 +5,7 @@ import {
   ActivityIcon,
   DownloadIcon,
   FileTextIcon,
+  HistoryIcon,
   RadarIcon,
   RefreshCcwIcon,
   StickyNoteIcon,
@@ -27,7 +28,6 @@ import {
 } from "@/components/ui/card"
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
@@ -43,18 +43,31 @@ import type {
   ScanStreamEvent,
 } from "@/lib/substack/types"
 import {
+  listCachedScans,
   readCachedScan,
-  readLatestCachedScan,
   saveCachedScan,
+  type CachedScan,
 } from "@/lib/report-cache"
 import { csvFilename, reportToCsv } from "@/lib/report-export"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_INPUT: ScanInput = {
-  profileUrl: "https://substack.com/@alialfredji",
+  profileUrl: "",
   days: 14,
-  requestsPerMinute: 40,
+  requestsPerMinute: 50,
   concurrency: 4,
+}
+
+const PUBLICATION_URL = "https://alialf.substack.com"
+const CREATOR_URL = "https://substack.com/@alialfredji"
+const GITHUB_URL = "https://github.com/alialfredji/substack-engagement-analyzer"
+
+function GithubMark() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="size-4" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.65 7.65 0 0 1 8 4.73c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  )
 }
 
 function initials(name: string) {
@@ -106,12 +119,15 @@ export function EngagementDashboard() {
   const [isScanning, setIsScanning] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [view, setView] = useState<ReportView>("combined")
+  const [cachedReports, setCachedReports] = useState<CachedScan[]>([])
   const abortRef = useRef<AbortController | null>(null)
   const scanStartedAtRef = useRef<number | null>(null)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const cached = readLatestCachedScan(window.localStorage)
+      const savedReports = listCachedScans(window.localStorage)
+      setCachedReports(savedReports)
+      const cached = savedReports[0]
       if (!cached) return
 
       setInput(cached.report.input)
@@ -142,6 +158,14 @@ export function EngagementDashboard() {
     setInput((current) => ({ ...current, [key]: Number(value) }))
   }
 
+  const openCachedReport = (cached: CachedScan) => {
+    setInput(cached.report.input)
+    setReport(cached.report)
+    setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
+    setView("combined")
+    setError(null)
+  }
+
   const runScan = async (forceRefresh = false) => {
     setError(null)
     setProgress(null)
@@ -149,9 +173,7 @@ export function EngagementDashboard() {
     if (!forceRefresh) {
       const cached = readCachedScan(input, window.localStorage)
       if (cached) {
-        setReport(cached.report)
-        setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
-        setView("combined")
+        openCachedReport(cached)
         return
       }
     }
@@ -194,6 +216,7 @@ export function EngagementDashboard() {
           if (message.type === "progress") setProgress(message.progress)
           if (message.type === "result") {
             const cached = saveCachedScan(message.result, window.localStorage)
+            setCachedReports(listCachedScans(window.localStorage))
             setReport(message.result)
             setReportState({
               source: "fresh",
@@ -243,27 +266,66 @@ export function EngagementDashboard() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <RadarIcon aria-hidden="true" />
-          <span className="text-sm font-medium">Signal Map</span>
-        </div>
-        <div className="flex max-w-3xl flex-col gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            Find the people who keep showing up.
-          </h1>
-          <p className="text-sm text-muted-foreground sm:text-base">
-            Rank the readers engaging with a creator’s recent Notes and articles.
-          </p>
+    <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <header className="border-b border-border pb-6">
+        <div className="flex items-start gap-4">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-primary" aria-hidden="true">
+            <RadarIcon className="size-6" />
+          </span>
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Substack Engagers</h1>
+            <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
+              See who shows up for your writing across recent Notes and articles.
+            </p>
+          </div>
         </div>
       </header>
 
+      <div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+      <aside className="w-full shrink-0 lg:sticky lg:top-8 lg:w-72" aria-label="Saved reports">
+        <Card size="sm" className="bg-sidebar">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <HistoryIcon className="size-4 text-primary" aria-hidden="true" />
+              Recent reports
+            </CardTitle>
+             <CardDescription>Saved on this browser{cachedReports.length ? ` · ${cachedReports.length}` : ""}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {cachedReports.length ? (
+               <nav aria-label="Recent reports" className="flex max-w-full gap-2 overflow-x-auto pb-1 lg:max-h-[65vh] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pr-1">
+                {cachedReports.map((cached) => {
+                  const active = report !== null && report.generatedAt === cached.report.generatedAt &&
+                    report.input.profileUrl === cached.report.input.profileUrl
+
+                  return (
+                    <Button
+                      key={`${cached.report.input.profileUrl}-${cached.report.input.days}`}
+                      type="button"
+                      variant={active ? "secondary" : "ghost"}
+                       className="h-auto w-[85%] shrink-0 flex-col items-start gap-1 px-3 py-2 text-left sm:w-56 lg:w-full lg:min-w-0"
+                      onClick={() => openCachedReport(cached)}
+                      disabled={isScanning}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      <span className="w-full truncate font-medium">{cached.report.target.name}</span>
+                      <span className="w-full truncate text-xs font-normal text-muted-foreground">
+                        {formatDayRange(cached.report.input.days)} · {formatDateTime(cached.savedAt)}
+                      </span>
+                    </Button>
+                  )
+                })}
+              </nav>
+            ) : (
+              <p className="text-sm text-muted-foreground">Your completed scans will appear here.</p>
+            )}
+           </CardContent>
+        </Card>
+      </aside>
+
+      <main className="flex min-w-0 flex-1 flex-col gap-6">
       <Card>
         <form onSubmit={handleSubmit}>
-          <CardHeader>
-            <CardTitle>New scan</CardTitle>
-          </CardHeader>
           <CardContent>
             <FieldGroup>
               <Field>
@@ -275,7 +337,7 @@ export function EngagementDashboard() {
                   onChange={(event) =>
                     setInput((current) => ({ ...current, profileUrl: event.target.value }))
                   }
-                  placeholder="https://substack.com/@creator"
+                  placeholder="https://substack.com/@yourname"
                   required
                   aria-invalid={Boolean(error && !input.profileUrl)}
                 />
@@ -288,11 +350,10 @@ export function EngagementDashboard() {
                     id="days"
                     type="number"
                     min={1}
-                    max={90}
+                    step={1}
                     value={input.days}
                     onChange={(event) => setNumericInput("days", event.target.value)}
                   />
-                  <FieldDescription>1-90</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="rpm">Requests per minute</FieldLabel>
@@ -300,11 +361,10 @@ export function EngagementDashboard() {
                     id="rpm"
                     type="number"
                     min={10}
-                    max={120}
+                    max={60}
                     value={input.requestsPerMinute}
                     onChange={(event) => setNumericInput("requestsPerMinute", event.target.value)}
                   />
-                  <FieldDescription>10-120</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="concurrency">Parallel requests</FieldLabel>
@@ -316,9 +376,11 @@ export function EngagementDashboard() {
                     value={input.concurrency}
                     onChange={(event) => setNumericInput("concurrency", event.target.value)}
                   />
-                  <FieldDescription>1-8</FieldDescription>
                 </Field>
               </FieldGroup>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Scans use Substack&apos;s public APIs. Rate limits can slow a scan; use a lower request rate or fewer parallel requests if that happens.
+              </p>
             </FieldGroup>
           </CardContent>
           <CardFooter className="justify-end">
@@ -499,6 +561,19 @@ export function EngagementDashboard() {
           </Card>
         </section>
       ) : null}
-    </main>
+      </main>
+      </div>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-xs text-muted-foreground">
+        <span>
+          Built by <a href={CREATOR_URL} target="_blank" rel="noreferrer" className="font-medium text-foreground underline underline-offset-2">Ali Alfredji</a> · Independent project, not affiliated with Substack.
+        </span>
+        <div className="flex items-center gap-3">
+          <a href={PUBLICATION_URL} target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">Modern Builder on Substack</a>
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" aria-label="View source on GitHub" className={cn(buttonVariants({ variant: "outline", size: "icon-sm" }), "text-foreground")}>
+            <GithubMark />
+          </a>
+        </div>
+      </footer>
+    </div>
   )
 }

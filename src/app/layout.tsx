@@ -14,15 +14,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Signal Map · Substack engagement scanner",
-  description: "Find and rank the people engaging with a Substack creator's recent content.",
+  title: "Substack Engagers · See who shows up for your writing",
+  description: "Explore the people engaging with public Substack Notes and articles. Built by Ali Alfredji.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <TooltipProvider>{children}</TooltipProvider>
