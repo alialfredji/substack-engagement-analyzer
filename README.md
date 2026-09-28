@@ -24,8 +24,6 @@ docker build -t substack-engagers:local .
 docker run --rm -p 3000:3000 substack-engagers:local
 ```
 
-The Compose file is ready for mac13's external `personal-server-edge` network and deliberately exposes no host port. Deploy and route it later through the personal-server control workflow. Run one app replica: the 60-request-per-minute cap is shared by scans in one Node process, not across multiple replicas.
-
 ## Verify
 
 ```bash
