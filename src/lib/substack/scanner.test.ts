@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { aggregateEngagements, normalizeInput, parseTargetUrl } from "./scanner"
+import { accumulateEngagements, aggregateEngagements, normalizeInput, parseTargetUrl } from "./scanner"
 import type { EngagementEdge } from "./types"
 
 describe("parseTargetUrl", () => {
@@ -87,5 +87,28 @@ describe("aggregateEngagements", () => {
     expect(person.articles).toEqual({ likes: 0, comments: 0, restacks: 1, total: 1, score: 2 })
     expect(person.lastCommentAt).toBe("2026-09-15T10:00:00.000Z")
     expect(person.lastSignalAt).toBe("2026-09-16T10:00:00.000Z")
+  })
+})
+
+describe("accumulateEngagements", () => {
+  it("emits only changed readers with cumulative scores", () => {
+    const first: EngagementEdge = {
+      actor: { id: 1, name: "One", handle: "one", photoUrl: null, writes: null },
+      kind: "like",
+      contentKind: "note",
+      contentId: 10,
+      signalAt: null,
+      isExactTime: false,
+    }
+    const second: EngagementEdge = {
+      ...first,
+      actor: { id: 2, name: "Two", handle: "two", photoUrl: null, writes: null },
+    }
+    const people = new Map()
+
+    expect(accumulateEngagements(people, [first]).map((person) => person.id)).toEqual([1])
+    expect(accumulateEngagements(people, [{ ...first, contentId: 11 }, second]).map((person) => person.id)).toEqual([1, 2])
+    expect(people.get(1)?.combined).toEqual({ likes: 2, comments: 0, restacks: 0, total: 2, score: 2 })
+    expect(people.get(2)?.combined.total).toBe(1)
   })
 })

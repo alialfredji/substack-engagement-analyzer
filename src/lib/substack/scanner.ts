@@ -132,6 +132,8 @@ type ContentItem = NoteContent | ArticleContent
 interface ScanDependencies {
   signal?: AbortSignal
   onProgress?: (progress: ScanProgress) => void
+  onTarget?: (target: TargetProfile) => void
+  onPeople?: (people: PersonEngagement[]) => void
 }
 
 function clampInteger(value: number, minimum: number, maximum: number, fallback: number) {
@@ -452,9 +454,8 @@ function addMetric(metrics: MetricSet, kind: EngagementEdge["kind"]) {
   metrics.score += kind === "comment" ? 3 : kind === "restack" ? 2 : 1
 }
 
-export function aggregateEngagements(edges: EngagementEdge[]): PersonEngagement[] {
-  const people = new Map<number, PersonEngagement>()
-
+export function accumulateEngagements(people: Map<number, PersonEngagement>, edges: EngagementEdge[]) {
+  const changed = new Set<number>()
   for (const edge of edges) {
     const existing = people.get(edge.actor.id)
     const person = existing ?? {
@@ -496,8 +497,15 @@ export function aggregateEngagements(edges: EngagementEdge[]): PersonEngagement[
     }
 
     people.set(person.id, person)
+    changed.add(person.id)
   }
 
+  return [...changed].map((id) => people.get(id)!)
+}
+
+export function aggregateEngagements(edges: EngagementEdge[]): PersonEngagement[] {
+  const people = new Map<number, PersonEngagement>()
+  accumulateEngagements(people, edges)
   return [...people.values()].sort(
     (a, b) => b.combined.score - a.combined.score || b.combined.total - a.combined.total,
   )
@@ -534,6 +542,7 @@ export async function scanEngagement(
 
   progress("resolving", "Resolving the creator and publication…")
   const target = await resolveTarget(parseTargetUrl(input.profileUrl), scheduler)
+  dependencies.onTarget?.(target)
   const cutoff = Date.now() - input.days * 86_400_000
 
   progress("discovering", `Finding content from the last ${input.days} days…`)
@@ -543,7 +552,7 @@ export async function scanEngagement(
   ])
   const content: ContentItem[] = [...notes, ...articles]
   const coverage = emptyCoverage()
-  const edges: EngagementEdge[] = []
+  const people = new Map<number, PersonEngagement>()
   const warnings = new Set<string>()
   let completed = 0
 
@@ -555,6 +564,7 @@ export async function scanEngagement(
   )
 
   await mapWithConcurrency(content, input.concurrency, async (item) => {
+    const itemEdges: EngagementEdge[] = []
     const baseUrl =
       item.kind === "note"
         ? ROOT
@@ -616,7 +626,7 @@ export async function scanEngagement(
     for (const actor of externalReactors) {
       const identity = actorFromUpstream(actor)
       if (identity) {
-        edges.push({
+        itemEdges.push({
           actor: identity,
           kind: "like",
           contentKind: item.kind,
@@ -629,7 +639,7 @@ export async function scanEngagement(
     for (const actor of externalRestackers) {
       const identity = actorFromUpstream(actor)
       if (identity) {
-        edges.push({
+        itemEdges.push({
           actor: identity,
           kind: "restack",
           contentKind: item.kind,
@@ -642,7 +652,7 @@ export async function scanEngagement(
     for (const comment of externalComments) {
       const identity = actorFromComment(comment)
       if (identity) {
-        edges.push({
+        itemEdges.push({
           actor: identity,
           kind: "comment",
           contentKind: item.kind,
@@ -659,6 +669,8 @@ export async function scanEngagement(
       )
     }
 
+    const changedPeople = accumulateEngagements(people, itemEdges)
+    if (changedPeople.length) dependencies.onPeople?.(changedPeople)
     completed += 1
     retryMessage = null
     progress(
@@ -687,7 +699,9 @@ export async function scanEngagement(
     input,
     generatedAt: new Date().toISOString(),
     cutoffAt: new Date(cutoff).toISOString(),
-    people: aggregateEngagements(edges),
+    people: [...people.values()].sort(
+      (a, b) => b.combined.score - a.combined.score || b.combined.total - a.combined.total,
+    ),
     coverage,
     stats: {
       ...scheduler.stats,

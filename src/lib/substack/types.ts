@@ -81,6 +81,8 @@ export interface ScanProgress {
 
 export type ScanStreamEvent =
   | { type: "progress"; progress: ScanProgress }
+  | { type: "target"; target: TargetProfile }
+  | { type: "people"; people: PersonEngagement[] }
   | { type: "result"; result: ScanReport }
   | { type: "error"; message: string }
 
@@ -100,4 +102,3 @@ export interface EngagementEdge {
   signalAt: string | null
   isExactTime: boolean
 }
-

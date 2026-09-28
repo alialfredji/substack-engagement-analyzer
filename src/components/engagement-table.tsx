@@ -1,8 +1,12 @@
+"use client"
+
+import { useLayoutEffect, useMemo, useRef } from "react"
 import { ExternalLinkIcon, UsersRoundIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Empty,
   EmptyDescription,
@@ -50,18 +54,67 @@ function metricsFor(person: PersonEngagement, view: ReportView): MetricSet {
 interface EngagementTableProps {
   people: PersonEngagement[]
   view: ReportView
+  isScanning?: boolean
 }
 
-export function EngagementTable({ people, view }: EngagementTableProps) {
-  const visible = people
+export function EngagementTable({ people, view, isScanning = false }: EngagementTableProps) {
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
+  const previousTops = useRef(new Map<number, number>())
+  const visible = useMemo(() => people
     .filter((person) => metricsFor(person, view).total > 0)
     .sort((a, b) => {
       const aMetrics = metricsFor(a, view)
       const bMetrics = metricsFor(b, view)
       return bMetrics.score - aMetrics.score || bMetrics.total - aMetrics.total
+    }), [people, view])
+
+  useLayoutEffect(() => {
+    const nextTops = new Map<number, number>()
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+
+    visible.forEach((person, index) => {
+      const row = rowRefs.current.get(person.id)
+      if (!row) return
+      row.getAnimations().forEach((animation) => animation.cancel())
+      const top = row.offsetTop
+      nextTops.set(person.id, top)
+      if (!isScanning || reduceMotion || index >= 30) return
+
+      const previousTop = previousTops.current.get(person.id)
+      if (previousTop === undefined) {
+        row.animate(
+          [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 260, easing: "ease-out" },
+        )
+      } else if (Math.abs(previousTop - top) > 2) {
+        row.animate(
+          [{ transform: `translateY(${previousTop - top}px)` }, { transform: "translateY(0)" }],
+          { duration: 380, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+        )
+      }
     })
 
+    previousTops.current = nextTops
+  }, [visible, isScanning])
+
   if (visible.length === 0) {
+    if (isScanning) {
+      return (
+        <div className="flex flex-col gap-4 py-5" role="status" aria-label="Waiting for reader results">
+          <p className="text-sm text-muted-foreground">Readers will appear here as their activity is found.</p>
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="flex items-center gap-3 rounded-md border border-border/50 p-3" aria-hidden="true">
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+              <div className="flex flex-1 flex-col gap-2">
+                <Skeleton className="h-3 w-40 max-w-full" />
+                <Skeleton className="h-3 w-24 max-w-full" />
+              </div>
+              <Skeleton className="h-5 w-12" />
+            </div>
+          ))}
+        </div>
+      )
+    }
     return (
       <Empty>
         <EmptyHeader>
@@ -94,7 +147,13 @@ export function EngagementTable({ people, view }: EngagementTableProps) {
         {visible.map((person) => {
           const metrics = metricsFor(person, view)
           return (
-            <TableRow key={person.id}>
+            <TableRow
+              key={person.id}
+              ref={(node) => {
+                if (node) rowRefs.current.set(person.id, node)
+                else rowRefs.current.delete(person.id)
+              }}
+            >
               <TableCell>
                 <div className="flex min-w-52 items-center gap-3">
                   <Avatar className="size-9">

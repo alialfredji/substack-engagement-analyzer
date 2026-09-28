@@ -41,6 +41,8 @@ import type {
   ScanProgress,
   ScanReport,
   ScanStreamEvent,
+  PersonEngagement,
+  TargetProfile,
 } from "@/lib/substack/types"
 import {
   listCachedScans,
@@ -114,6 +116,9 @@ export function EngagementDashboard() {
   const [input, setInput] = useState(DEFAULT_INPUT)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [report, setReport] = useState<ScanReport | null>(null)
+  const [liveTarget, setLiveTarget] = useState<TargetProfile | null>(null)
+  const [livePeople, setLivePeople] = useState<PersonEngagement[]>([])
+  const [liveInput, setLiveInput] = useState<ScanInput | null>(null)
   const [reportState, setReportState] = useState<ReportState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
@@ -149,9 +154,12 @@ export function EngagementDashboard() {
     return () => window.clearInterval(timer)
   }, [isScanning])
 
+  const displayedTarget = report?.target ?? liveTarget
+  const displayedPeople = report?.people ?? livePeople
+  const displayedInput = report?.input ?? liveInput
   const totalEngagements = useMemo(
-    () => report?.people.reduce((sum, person) => sum + person.combined.total, 0) ?? 0,
-    [report],
+    () => displayedPeople.reduce((sum, person) => sum + person.combined.total, 0),
+    [displayedPeople],
   )
 
   const setNumericInput = (key: "days" | "requestsPerMinute" | "concurrency", value: string) => {
@@ -159,6 +167,9 @@ export function EngagementDashboard() {
   }
 
   const openCachedReport = (cached: CachedScan) => {
+    setLiveTarget(null)
+    setLivePeople([])
+    setLiveInput(null)
     setInput(cached.report.input)
     setReport(cached.report)
     setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
@@ -180,6 +191,10 @@ export function EngagementDashboard() {
 
     setReport(null)
     setReportState(null)
+    setLiveTarget(null)
+    setLivePeople([])
+    setLiveInput({ ...input })
+    setView("combined")
     setIsScanning(true)
     setElapsedMs(0)
     scanStartedAtRef.current = Date.now()
@@ -203,6 +218,7 @@ export function EngagementDashboard() {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
+      let receivedResult = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -214,7 +230,16 @@ export function EngagementDashboard() {
           if (!line.trim()) continue
           const message = JSON.parse(line) as ScanStreamEvent
           if (message.type === "progress") setProgress(message.progress)
+          if (message.type === "target") setLiveTarget(message.target)
+          if (message.type === "people") {
+            setLivePeople((current) => {
+              const byId = new Map(current.map((person) => [person.id, person]))
+              for (const person of message.people) byId.set(person.id, person)
+              return [...byId.values()]
+            })
+          }
           if (message.type === "result") {
+            receivedResult = true
             const cached = saveCachedScan(message.result, window.localStorage)
             setCachedReports(listCachedScans(window.localStorage))
             setReport(message.result)
@@ -229,6 +254,10 @@ export function EngagementDashboard() {
         }
 
         if (done) break
+      }
+      if (!receivedResult) {
+        if (controller.signal.aborted) throw new DOMException("Scan cancelled", "AbortError")
+        throw new Error("The scan ended before the report was complete.")
       }
     } catch (scanError) {
       if (scanError instanceof DOMException && scanError.name === "AbortError") {
@@ -435,24 +464,27 @@ export function EngagementDashboard() {
         </Alert>
       ) : null}
 
-      {report ? (
+      {report || isScanning || livePeople.length > 0 ? (
         <section className="flex flex-col gap-4" aria-labelledby="report-title">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
-              <Avatar className="size-12">
-                {report.target.photoUrl ? <AvatarImage src={report.target.photoUrl} alt="" /> : null}
-                <AvatarFallback>{initials(report.target.name)}</AvatarFallback>
-              </Avatar>
+              {displayedTarget ? (
+                <Avatar className="size-12">
+                  {displayedTarget.photoUrl ? <AvatarImage src={displayedTarget.photoUrl} alt="" /> : null}
+                  <AvatarFallback>{initials(displayedTarget.name)}</AvatarFallback>
+                </Avatar>
+              ) : <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted"><Spinner className="size-5" /></span>}
               <div className="min-w-0">
                 <h2 id="report-title" className="truncate text-xl font-semibold">
-                  {report.target.name}
+                  {displayedTarget?.name ?? "Finding creator…"}
                 </h2>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <span>{report.target.publicationName ?? report.target.handle ?? "Substack creator"}</span>
+                  <span>{displayedTarget?.publicationName ?? displayedTarget?.handle ?? "Substack creator"}</span>
                   <span>·</span>
-                  <span>{formatDayRange(report.input.days)}</span>
+                  <span>{formatDayRange(displayedInput?.days ?? input.days)}</span>
                   <span>·</span>
-                  <span>{formatDuration(report.stats.durationMs)}</span>
+                  <span>{formatDuration(report?.stats.durationMs ?? elapsedMs)}</span>
+                  {!report ? <Badge variant="secondary">{isScanning ? "Live" : "Partial"}</Badge> : null}
                   {reportState ? (
                     <Badge variant={reportState.source === "cache" ? "secondary" : "outline"}>
                       {reportState.source === "cache" ? "Cached" : reportState.cacheSaved ? "Saved" : "Not cached"}
@@ -467,18 +499,18 @@ export function EngagementDashboard() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => void runScan(true)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => void runScan(true)} disabled={isScanning}>
                 <RefreshCcwIcon data-icon="inline-start" />
                 Rerun fresh
               </Button>
-              <a
-                href={report.target.profileUrl}
+              {displayedTarget ? <a
+                href={displayedTarget.profileUrl}
                 target="_blank"
                 rel="noreferrer"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
                 Open profile
-              </a>
+              </a> : null}
             </div>
           </div>
 
@@ -489,10 +521,10 @@ export function EngagementDashboard() {
             <CardContent>
               <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 {[
-                  ["People", report.people.length],
+                  ["People", displayedPeople.length],
                   ["Engagements", totalEngagements],
-                  ["Content", report.stats.notesScanned + report.stats.articlesScanned],
-                  ["Requests", report.stats.requests],
+                  ["Content", report ? report.stats.notesScanned + report.stats.articlesScanned : progress?.completed ?? 0],
+                  ["Requests", report?.stats.requests ?? progress?.requests ?? 0],
                 ].map(([label, value]) => (
                   <div key={label} className="flex flex-col gap-1">
                     <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -503,7 +535,7 @@ export function EngagementDashboard() {
             </CardContent>
           </Card>
 
-          {report.warnings.length ? (
+          {report?.warnings.length ? (
             <Alert>
               <AlertTitle>Public data</AlertTitle>
               <AlertDescription>
@@ -515,8 +547,11 @@ export function EngagementDashboard() {
           <Card>
             <CardHeader>
               <CardTitle>Engagement leaderboard</CardTitle>
+              <CardDescription aria-live="polite">
+                {isScanning ? `${displayedPeople.length} readers found so far · rankings update as content is scanned` : report ? `${displayedPeople.length} readers ranked` : "Partial scan results"}
+              </CardDescription>
               <CardAction>
-                <Button type="button" variant="outline" size="sm" onClick={exportCsv}>
+                <Button type="button" variant="outline" size="sm" onClick={exportCsv} disabled={!report || isScanning}>
                   <DownloadIcon data-icon="inline-start" />
                   Export CSV
                 </Button>
@@ -540,22 +575,22 @@ export function EngagementDashboard() {
                 </TabsList>
                 <Separator />
                 <TabsContent value="combined">
-                  <EngagementTable people={report.people} view="combined" />
+                  <EngagementTable people={displayedPeople} view="combined" isScanning={isScanning} />
                 </TabsContent>
                 <TabsContent value="notes">
-                  <EngagementTable people={report.people} view="notes" />
+                  <EngagementTable people={displayedPeople} view="notes" isScanning={isScanning} />
                 </TabsContent>
                 <TabsContent value="articles">
-                  <EngagementTable people={report.people} view="articles" />
+                  <EngagementTable people={displayedPeople} view="articles" isScanning={isScanning} />
                 </TabsContent>
               </Tabs>
             </CardContent>
             <CardFooter className="justify-between gap-4 text-xs text-muted-foreground">
               <span>
-                {report.stats.notesScanned} notes · {report.stats.articlesScanned} articles
+                {report ? `${report.stats.notesScanned} notes · ${report.stats.articlesScanned} articles` : `${progress?.completed ?? 0} of ${progress?.total ?? "?"} items scanned`}
               </span>
               <span>
-                {report.stats.retries} retries · {report.stats.rateLimits} rate limits
+                {report ? `${report.stats.retries} retries · ${report.stats.rateLimits} rate limits` : isScanning ? "Updating live" : "Scan incomplete"}
               </span>
             </CardFooter>
           </Card>

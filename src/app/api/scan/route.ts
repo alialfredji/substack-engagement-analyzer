@@ -36,6 +36,8 @@ export async function POST(request: Request) {
       void scanEngagement(input, {
         signal: scanController.signal,
         onProgress: (progress) => send({ type: "progress", progress }),
+        onTarget: (target) => send({ type: "target", target }),
+        onPeople: (people) => send({ type: "people", people }),
       })
         .then((result) => send({ type: "result", result }))
         .catch((error: unknown) => {
