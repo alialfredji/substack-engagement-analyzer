@@ -8,6 +8,7 @@ import {
   HistoryIcon,
   RadarIcon,
   RefreshCcwIcon,
+  Share2Icon,
   StickyNoteIcon,
   XIcon,
 } from "lucide-react"
@@ -51,6 +52,7 @@ import {
   type CachedScan,
 } from "@/lib/report-cache"
 import { csvFilename, reportToCsv } from "@/lib/report-export"
+import { trackEvent } from "@/lib/analytics"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_INPUT: ScanInput = {
@@ -107,19 +109,29 @@ function formatDayRange(days: number) {
 }
 
 interface ReportState {
-  source: "cache" | "fresh"
+  source: "cache" | "fresh" | "shared"
   savedAt: string
-  cacheSaved: boolean
 }
 
-export function EngagementDashboard() {
-  const [input, setInput] = useState(DEFAULT_INPUT)
+export function EngagementDashboard({
+  initialReport = null,
+  initialSharePath = null,
+}: {
+  initialReport?: ScanReport | null
+  initialSharePath?: string | null
+}) {
+  const [input, setInput] = useState(initialReport?.input ?? DEFAULT_INPUT)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
-  const [report, setReport] = useState<ScanReport | null>(null)
+  const [report, setReport] = useState<ScanReport | null>(initialReport)
+  const [sharePath, setSharePath] = useState<string | null>(initialSharePath)
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null)
   const [liveTarget, setLiveTarget] = useState<TargetProfile | null>(null)
   const [livePeople, setLivePeople] = useState<PersonEngagement[]>([])
   const [liveInput, setLiveInput] = useState<ScanInput | null>(null)
-  const [reportState, setReportState] = useState<ReportState | null>(null)
+  const [reportState, setReportState] = useState<ReportState | null>(initialReport ? {
+    source: "shared",
+    savedAt: initialReport.generatedAt,
+  } : null)
   const [error, setError] = useState<string | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -132,16 +144,18 @@ export function EngagementDashboard() {
     const timer = window.setTimeout(() => {
       const savedReports = listCachedScans(window.localStorage)
       setCachedReports(savedReports)
+      if (initialReport) return
       const cached = savedReports[0]
       if (!cached) return
 
       setInput(cached.report.input)
       setReport(cached.report)
-      setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
+      setSharePath(cached.sharePath ?? null)
+      setReportState({ source: "cache", savedAt: cached.savedAt })
     }, 0)
 
     return () => window.clearTimeout(timer)
-  }, [])
+  }, [initialReport])
 
   useEffect(() => {
     if (!isScanning || scanStartedAtRef.current === null) return
@@ -157,10 +171,21 @@ export function EngagementDashboard() {
   const displayedTarget = report?.target ?? liveTarget
   const displayedPeople = report?.people ?? livePeople
   const displayedInput = report?.input ?? liveInput
-  const totalEngagements = useMemo(
-    () => displayedPeople.reduce((sum, person) => sum + person.combined.total, 0),
+  const engagementTotals = useMemo(
+    () => displayedPeople.reduce(
+      (totals, person) => ({
+        likes: totals.likes + person.combined.likes,
+        comments: totals.comments + person.combined.comments,
+        restacks: totals.restacks + person.combined.restacks,
+        total: totals.total + person.combined.total,
+      }),
+      { likes: 0, comments: 0, restacks: 0, total: 0 },
+    ),
     [displayedPeople],
   )
+  const contentCount = report
+    ? report.stats.notesScanned + report.stats.articlesScanned
+    : progress?.completed ?? 0
 
   const setNumericInput = (key: "days" | "requestsPerMinute" | "concurrency", value: string) => {
     setInput((current) => ({ ...current, [key]: Number(value) }))
@@ -172,7 +197,9 @@ export function EngagementDashboard() {
     setLiveInput(null)
     setInput(cached.report.input)
     setReport(cached.report)
-    setReportState({ source: "cache", savedAt: cached.savedAt, cacheSaved: true })
+    setSharePath(cached.sharePath ?? null)
+    setShareFeedback(null)
+    setReportState({ source: "cache", savedAt: cached.savedAt })
     setView("combined")
     setError(null)
   }
@@ -185,11 +212,14 @@ export function EngagementDashboard() {
       const cached = readCachedScan(input, window.localStorage)
       if (cached) {
         openCachedReport(cached)
+        trackEvent("cached_report_opened")
         return
       }
     }
 
     setReport(null)
+    setSharePath(null)
+    setShareFeedback(null)
     setReportState(null)
     setLiveTarget(null)
     setLivePeople([])
@@ -198,6 +228,7 @@ export function EngagementDashboard() {
     setIsScanning(true)
     setElapsedMs(0)
     scanStartedAtRef.current = Date.now()
+    trackEvent("scan_started", { days: input.days })
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -240,13 +271,18 @@ export function EngagementDashboard() {
           }
           if (message.type === "result") {
             receivedResult = true
-            const cached = saveCachedScan(message.result, window.localStorage)
+            trackEvent("scan_completed", {
+              days: message.result.input.days,
+              people_found: message.result.people.length,
+              duration_seconds: Math.round((Date.now() - (scanStartedAtRef.current ?? Date.now())) / 1_000),
+            })
+            const cached = saveCachedScan(message.result, window.localStorage, message.sharePath)
             setCachedReports(listCachedScans(window.localStorage))
             setReport(message.result)
+            setSharePath(message.sharePath)
             setReportState({
               source: "fresh",
               savedAt: cached?.savedAt ?? message.result.generatedAt,
-              cacheSaved: Boolean(cached),
             })
             setView("combined")
           }
@@ -261,8 +297,10 @@ export function EngagementDashboard() {
       }
     } catch (scanError) {
       if (scanError instanceof DOMException && scanError.name === "AbortError") {
+        trackEvent("scan_cancelled")
         setError("Scan cancelled.")
       } else {
+        trackEvent("scan_failed")
         setError(scanError instanceof Error ? scanError.message : "The scan failed.")
       }
     } finally {
@@ -290,8 +328,26 @@ export function EngagementDashboard() {
     anchor.download = csvFilename(report, view)
     document.body.appendChild(anchor)
     anchor.click()
+    trackEvent("csv_exported", { view })
     anchor.remove()
     URL.revokeObjectURL(url)
+  }
+
+  const shareReport = async () => {
+    if (!report || !sharePath) return
+    const url = new URL(sharePath, window.location.origin).toString()
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${report.target.name} · Substack Engagers`, url })
+        setShareFeedback("Shared")
+      } else {
+        await navigator.clipboard.writeText(url)
+        setShareFeedback("Link copied")
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return
+      setShareFeedback("Could not share. Copy the page URL instead.")
+    }
   }
 
   return (
@@ -467,7 +523,15 @@ export function EngagementDashboard() {
       {report || isScanning || livePeople.length > 0 ? (
         <section className="flex flex-col gap-4" aria-labelledby="report-title">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
+            <a
+              href={displayedTarget?.profileUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                "group flex min-w-0 items-center gap-3 rounded-sm",
+                displayedTarget && "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+              )}
+            >
               {displayedTarget ? (
                 <Avatar className="size-12">
                   {displayedTarget.photoUrl ? <AvatarImage src={displayedTarget.photoUrl} alt="" /> : null}
@@ -475,7 +539,7 @@ export function EngagementDashboard() {
                 </Avatar>
               ) : <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted"><Spinner className="size-5" /></span>}
               <div className="min-w-0">
-                <h2 id="report-title" className="truncate text-xl font-semibold">
+                <h2 id="report-title" className="truncate text-xl font-semibold group-hover:underline group-focus-visible:underline">
                   {displayedTarget?.name ?? "Finding creator…"}
                 </h2>
                 <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -487,44 +551,49 @@ export function EngagementDashboard() {
                   {!report ? <Badge variant="secondary">{isScanning ? "Live" : "Partial"}</Badge> : null}
                   {reportState ? (
                     <Badge variant={reportState.source === "cache" ? "secondary" : "outline"}>
-                      {reportState.source === "cache" ? "Cached" : reportState.cacheSaved ? "Saved" : "Not cached"}
+                      {sharePath ? "Saved" : "Browser only"}
                     </Badge>
                   ) : null}
                 </div>
                 {reportState ? (
                   <p className="text-xs text-muted-foreground">
-                    {reportState.source === "cache" ? "Cached" : "Generated"} {formatDateTime(reportState.savedAt)}
+                    Generated {formatDateTime(reportState.savedAt)}
                   </p>
                 ) : null}
               </div>
-            </div>
+            </a>
             <div className="flex flex-wrap items-center gap-2">
+              {report && sharePath ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => void shareReport()}>
+                  <Share2Icon data-icon="inline-start" />
+                  Share report
+                </Button>
+              ) : null}
               <Button type="button" variant="outline" size="sm" onClick={() => void runScan(true)} disabled={isScanning}>
                 <RefreshCcwIcon data-icon="inline-start" />
                 Rerun fresh
               </Button>
-              {displayedTarget ? <a
-                href={displayedTarget.profileUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                Open profile
-              </a> : null}
             </div>
           </div>
+
+          {shareFeedback ? <p className="text-sm text-muted-foreground" role="status">{shareFeedback}</p> : null}
 
           <Card size="sm">
             <CardHeader className="sr-only">
               <CardTitle>Scan summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 {[
                   ["People", displayedPeople.length],
-                  ["Engagements", totalEngagements],
-                  ["Content", report ? report.stats.notesScanned + report.stats.articlesScanned : progress?.completed ?? 0],
-                  ["Requests", report?.stats.requests ?? progress?.requests ?? 0],
+                  ["Engagements", engagementTotals.total],
+                  ["Content", contentCount],
+                  ["Total likes", engagementTotals.likes],
+                  ["Total comments", engagementTotals.comments],
+                  ["Total restacks", engagementTotals.restacks],
+                  ["Avg likes / content", contentCount ? (engagementTotals.likes / contentCount).toFixed(1) : "0.0"],
+                  ["Avg comments / content", contentCount ? (engagementTotals.comments / contentCount).toFixed(1) : "0.0"],
+                  ["Avg restacks / content", contentCount ? (engagementTotals.restacks / contentCount).toFixed(1) : "0.0"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex flex-col gap-1">
                     <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -534,15 +603,6 @@ export function EngagementDashboard() {
               </dl>
             </CardContent>
           </Card>
-
-          {report?.warnings.length ? (
-            <Alert>
-              <AlertTitle>Public data</AlertTitle>
-              <AlertDescription>
-                Some reaction and restack totals may not expose every profile.
-              </AlertDescription>
-            </Alert>
-          ) : null}
 
           <Card>
             <CardHeader>
@@ -558,6 +618,14 @@ export function EngagementDashboard() {
               </CardAction>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  {report ? `${report.stats.notesScanned} notes · ${report.stats.articlesScanned} articles` : `${progress?.completed ?? 0} of ${progress?.total ?? "?"} items scanned`}
+                </span>
+                <span>
+                  {report ? `${report.stats.retries} retries · ${report.stats.rateLimits} rate limits` : isScanning ? "Updating live" : "Scan incomplete"}
+                </span>
+              </div>
               <Tabs value={view} onValueChange={(value) => setView(value as ReportView)}>
                 <TabsList variant="line">
                   <TabsTrigger value="combined">
@@ -585,14 +653,6 @@ export function EngagementDashboard() {
                 </TabsContent>
               </Tabs>
             </CardContent>
-            <CardFooter className="justify-between gap-4 text-xs text-muted-foreground">
-              <span>
-                {report ? `${report.stats.notesScanned} notes · ${report.stats.articlesScanned} articles` : `${progress?.completed ?? 0} of ${progress?.total ?? "?"} items scanned`}
-              </span>
-              <span>
-                {report ? `${report.stats.retries} retries · ${report.stats.rateLimits} rate limits` : isScanning ? "Updating live" : "Scan incomplete"}
-              </span>
-            </CardFooter>
           </Card>
         </section>
       ) : null}

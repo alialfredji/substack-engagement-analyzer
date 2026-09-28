@@ -83,7 +83,7 @@ export type ScanStreamEvent =
   | { type: "progress"; progress: ScanProgress }
   | { type: "target"; target: TargetProfile }
   | { type: "people"; people: PersonEngagement[] }
-  | { type: "result"; result: ScanReport }
+  | { type: "result"; result: ScanReport; sharePath: string }
   | { type: "error"; message: string }
 
 export interface ActorIdentity {

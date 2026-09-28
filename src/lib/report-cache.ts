@@ -9,6 +9,7 @@ export interface CachedScan {
   version: 1
   savedAt: string
   report: ScanReport
+  sharePath?: string
 }
 
 interface CacheIndexEntry {
@@ -86,10 +87,10 @@ export function listCachedScans(storage: CacheStorage): CachedScan[] {
     })
 }
 
-export function saveCachedScan(report: ScanReport, storage: CacheStorage) {
+export function saveCachedScan(report: ScanReport, storage: CacheStorage, sharePath?: string) {
   const key = cacheKeyForInput(report.input)
   const savedAt = report.generatedAt || new Date().toISOString()
-  const cached: CachedScan = { version: 1, savedAt, report }
+  const cached: CachedScan = { version: 1, savedAt, report, sharePath }
   const currentIndex = readIndex(storage).filter((entry) => entry.key !== key)
   const nextIndex = [{ key, savedAt }, ...currentIndex]
 

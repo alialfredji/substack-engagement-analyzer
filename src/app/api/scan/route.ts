@@ -1,4 +1,5 @@
 import { scanEngagement } from "@/lib/substack/scanner"
+import { saveReport } from "@/lib/report-store"
 import type { ScanInput, ScanStreamEvent } from "@/lib/substack/types"
 
 export const runtime = "nodejs"
@@ -39,7 +40,11 @@ export async function POST(request: Request) {
         onTarget: (target) => send({ type: "target", target }),
         onPeople: (people) => send({ type: "people", people }),
       })
-        .then((result) => send({ type: "result", result }))
+        .then(async (result) => {
+          if (scanController.signal.aborted) return
+          const sharePath = await saveReport(result)
+          send({ type: "result", result, sharePath })
+        })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === "AbortError") return
           send({
