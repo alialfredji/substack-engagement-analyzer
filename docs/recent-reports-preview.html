@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recent reports · UI preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: #111111;
+      --card: #1b1b1b;
+      --card-raised: #202020;
+      --foreground: #f5f5f5;
+      --muted: #a8a8a8;
+      --border: #333333;
+      --primary: #ff6719;
+      --primary-soft: #38271e;
+      --selected: #292929;
+      font-family: Geist, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; }
+    body { margin: 0; color: var(--foreground); background: #0d0d0d; font-size: 14px; line-height: 1.45; }
+    button { font: inherit; }
+    button:focus-visible { outline: 2px solid #ff9a65; outline-offset: 2px; }
+    .preview-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; max-width: 1400px; margin: auto; padding: 20px 28px; }
+    .preview-label { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+    .preview-label strong { color: var(--foreground); font-weight: 600; }
+    .preview-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+    .view-switch { display: flex; gap: 3px; padding: 4px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
+    .view-switch button { min-height: 36px; padding: 0 13px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
+    .view-switch button[aria-pressed="true"] { color: var(--foreground); background: var(--selected); }
+    .stage { padding: 0 24px 50px; }
+    .app-frame { container-type: inline-size; max-width: 1220px; min-height: 680px; margin: auto; border: 1px solid #2d2d2d; border-radius: 14px; background: var(--background); box-shadow: 0 18px 55px #0005; transition: max-width .25s ease; }
+    .app-frame.is-mobile { max-width: 390px; }
+    .app { padding: 30px 32px 34px; }
+    .app-header { padding-bottom: 25px; border-bottom: 1px solid var(--border); }
+    .app-header h1 { margin: 0; font-size: 27px; line-height: 1.2; font-weight: 650; letter-spacing: -.045em; }
+    .app-header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .layout { display: grid; grid-template-columns: 304px minmax(0, 1fr); gap: 30px; align-items: start; margin-top: 26px; }
+    .recent { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; background: var(--card); }
+    .recent-header { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 20px 17px 15px; }
+    .recent-title { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 15px; font-weight: 620; letter-spacing: -.015em; }
+    .recent-icon { display: grid; width: 22px; height: 22px; place-items: center; color: var(--primary); }
+    .recent-title svg { width: 18px; height: 18px; stroke-width: 1.8; }
+    .recent-subtitle { margin: 4px 0 0 31px; color: var(--muted); font-size: 12px; }
+    .count { min-width: 25px; padding: 3px 7px; border: 1px solid #3b3b3b; border-radius: 6px; color: #c9c9c9; text-align: center; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .report-list { display: grid; gap: 3px; padding: 0 8px 8px; }
+    .report { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; min-height: 65px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+    .report:hover { background: #252525; }
+    .report:active { background: #303030; }
+    .report[aria-current="true"] { border-color: #41403e; background: var(--selected); }
+    .report[aria-current="true"]::before { content: ""; position: absolute; top: 12px; bottom: 12px; left: 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--primary); }
+    .avatar { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #444; border-radius: 10px; color: #ded7d2; background: #30302f; font-size: 11px; font-weight: 680; letter-spacing: -.02em; }
+    .avatar.orange { border-color: #6c422c; color: #ffae7e; background: var(--primary-soft); }
+    .avatar.slate { border-color: #484c52; color: #d5d9df; background: #2b2f34; }
+    .report-copy { min-width: 0; }
+    .report-name { display: block; overflow: hidden; color: var(--foreground); font-size: 13px; font-weight: 610; text-overflow: ellipsis; white-space: nowrap; }
+    .report-meta { display: flex; align-items: center; min-width: 0; gap: 6px; margin-top: 3px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .range { flex: none; color: #e5e5e5; font-variant-numeric: tabular-nums; }
+    .sep { display: none; }
+    .when::before { content: "·"; margin-right: 6px; color: var(--muted); }
+    .when { overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+    .older-heading { margin: 10px 10px 5px; color: #8f8f8f; font-size: 10px; font-weight: 650; letter-spacing: .11em; text-transform: uppercase; }
+    .older[hidden], .older-heading[hidden] { display: none; }
+    .recent-footer { padding: 7px 12px 11px; border-top: 1px solid #303030; }
+    .more { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 40px; padding: 0 6px; border: 0; border-radius: 6px; color: #e2e2e2; background: transparent; text-align: left; font-size: 12px; font-weight: 570; cursor: pointer; }
+    .more:hover { color: var(--foreground); background: #292929; }
+    .more svg { width: 15px; height: 15px; color: var(--muted); transition: transform .2s ease; }
+    .more[aria-expanded="true"] svg { transform: rotate(180deg); }
+    .main { display: grid; gap: 18px; min-width: 0; }
+    .panel { border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+    .scan-panel { padding: 22px 24px; }
+    .panel-eyebrow { margin: 0 0 11px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
+    .scan-fields { display: grid; grid-template-columns: minmax(0, 1fr) 100px auto; gap: 10px; align-items: end; }
+    .field-label { display: block; margin-bottom: 7px; font-size: 12px; font-weight: 580; }
+    .field-value { display: flex; align-items: center; min-width: 0; min-height: 38px; padding: 0 11px; overflow: hidden; border: 1px solid #444; border-radius: 7px; color: #c7c7c7; white-space: nowrap; text-overflow: ellipsis; }
+    .scan-button { min-height: 38px; padding: 0 16px; border: 0; border-radius: 7px; color: #1a100b; background: var(--primary); font-weight: 650; }
+    .result-panel { padding: 22px 24px 26px; }
+    .result-top { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+    .result-name { margin: 0; font-size: 23px; line-height: 1.2; font-weight: 650; letter-spacing: -.035em; }
+    .result-meta { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .saved-tag { flex: none; padding: 5px 8px; border: 1px solid #444; border-radius: 6px; color: #c9c9c9; font-size: 11px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }
+    .metric { min-height: 99px; padding: 14px 15px; border: 1px solid var(--border); border-radius: 8px; background: var(--card-raised); }
+    .metric span { color: var(--muted); font-size: 11px; }
+    .metric strong { display: block; margin-top: 8px; font-size: 23px; font-weight: 650; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+    .table-hint { margin-top: 20px; padding-top: 17px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+    @container (max-width: 760px) {
+      .app { padding: 22px 16px 26px; }
+      .app-header { padding-bottom: 18px; }
+      .app-header h1 { font-size: 23px; }
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 18px; }
+      .recent-header { padding: 17px 16px 13px; }
+      .report-list { padding: 0 8px 8px; }
+      .report { grid-template-columns: 38px minmax(0, 1fr); min-height: 64px; }
+      .avatar { width: 38px; height: 38px; }
+      .report-name { font-size: 14px; }
+      .report-meta { font-size: 12px; }
+      .scan-panel, .result-panel { padding: 18px; }
+      .scan-fields { grid-template-columns: minmax(0, 1fr) 82px; }
+      .scan-button { grid-column: 1 / -1; }
+      .metric-grid { gap: 7px; }
+      .metric { min-height: 81px; padding: 10px; }
+      .metric strong { font-size: 19px; }
+    }
+    @media (max-width: 600px) {
+      .preview-bar { padding: 16px; }
+      .preview-label { font-size: 12px; }
+      .stage { padding: 0 10px 28px; }
+      .app-frame { border-radius: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .app-frame, .more svg { transition: none; } }
+  </style>
+</head>
+<body>
+  <div class="preview-bar">
+    <div class="preview-label"><span class="preview-dot" aria-hidden="true"></span><strong>Recent reports</strong><span>Responsive concept · sample data</span></div>
+    <div class="view-switch" role="group" aria-label="Preview size">
+      <button type="button" data-view="desktop" aria-pressed="true">Desktop</button>
+      <button type="button" data-view="mobile" aria-pressed="false">Mobile</button>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="app-frame" id="frame">
+      <div class="app">
+        <header class="app-header">
+          <h1>Substack Engagers</h1>
+          <p>See who shows up for your writing across recent Notes and articles.</p>
+        </header>
+        <div class="layout">
+          <aside class="recent" aria-labelledby="recent-title">
+            <div class="recent-header">
+              <div>
+                <h2 class="recent-title" id="recent-title"><span class="recent-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span>Recent reports</h2>
+              </div>
+              <span class="count" title="7 saved reports">7</span>
+            </div>
+            <nav class="report-list" aria-label="Saved reports">
+              <button class="report" type="button" aria-current="true" data-name="Karo (Product with Attitude)" data-range="30 days" data-when="Today at 12:39 PM"><span class="avatar orange" aria-hidden="true">KA</span><span class="report-copy"><span class="report-name">Karo (Product with Attitude)</span><span class="report-meta"><span class="range">30 days</span><span class="sep" aria-hidden="true">·</span><span class="when">Today, 12:39 PM</span></span></span></button>
+              <button class="report" type="button" data-name="Jie Liu" data-range="30 days" data-when="Today at 12:30 PM"><span class="avatar slate" aria-hidden="true">JL</span><span class="report-copy"><span class="report-name">Jie Liu</span><span class="report-meta"><span class="range">30 days</span><span class="sep">·</span><span class="when">Today, 12:30 PM</span></span></span></button>
+              <button class="report" type="button" data-name="Karo (Product with Attitude)" data-range="14 days" data-when="Today at 3:13 AM"><span class="avatar orange" aria-hidden="true">KA</span><span class="report-copy"><span class="report-name">Karo (Product with Attitude)</span><span class="report-meta"><span class="range">14 days</span><span class="sep">·</span><span class="when">Today, 3:13 AM</span></span></span></button>
+              <p class="older-heading" id="older-heading" hidden>Earlier</p>
+              <button class="report older" type="button" data-name="Tracy Friedlander" data-range="7 days" data-when="Today at 2:37 AM" hidden><span class="avatar" aria-hidden="true">TF</span><span class="report-copy"><span class="report-name">Tracy Friedlander</span><span class="report-meta"><span class="range">7 days</span><span class="sep">·</span><span class="when">Today, 2:37 AM</span></span></span></button>
+              <button class="report older" type="button" data-name="Jie Liu" data-range="7 days" data-when="Today at 1:19 AM" hidden><span class="avatar slate" aria-hidden="true">JL</span><span class="report-copy"><span class="report-name">Jie Liu</span><span class="report-meta"><span class="range">7 days</span><span class="sep">·</span><span class="when">Today, 1:19 AM</span></span></span></button>
+              <button class="report older" type="button" data-name="FRIEND" data-range="7 days" data-when="Today at 1:15 AM" hidden><span class="avatar" aria-hidden="true">FR</span><span class="report-copy"><span class="report-name">FRIEND</span><span class="report-meta"><span class="range">7 days</span><span class="sep">·</span><span class="when">Today, 1:15 AM</span></span></span></button>
+              <button class="report older" type="button" data-name="Ali Alfredji" data-range="14 days" data-when="Sep 20 at 8:08 PM" hidden><span class="avatar orange" aria-hidden="true">AA</span><span class="report-copy"><span class="report-name">Ali Alfredji</span><span class="report-meta"><span class="range">14 days</span><span class="sep">·</span><span class="when">Sep 20, 8:08 PM</span></span></span></button>
+            </nav>
+            <div class="recent-footer"><button class="more" id="more" type="button" aria-expanded="false" aria-controls="older-heading">Show 4 older reports <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></div>
+          </aside>
+          <main class="main">
+            <section class="panel scan-panel" aria-label="Scan form preview">
+              <p class="panel-eyebrow">Scan engagement</p>
+              <div class="scan-fields"><div><span class="field-label">Substack link</span><span class="field-value">https://substack.com/@karo</span></div><div><span class="field-label">Days</span><span class="field-value">30</span></div><button class="scan-button" type="button" disabled>Scan engagement</button></div>
+            </section>
+            <section class="panel result-panel" aria-label="Selected report preview">
+              <div class="result-top"><div><p class="panel-eyebrow">Selected report</p><h2 class="result-name" id="selected-name">Karo (Product with Attitude)</h2><p class="result-meta" id="selected-meta">30 days scanned · Saved today at 12:39 PM</p></div><span class="saved-tag">Saved report</span></div>
+              <div class="metric-grid"><div class="metric"><span>Engagers</span><strong>466</strong></div><div class="metric"><span>Engagements</span><strong>1,462</strong></div><div class="metric"><span>Content scanned</span><strong>79</strong></div></div>
+              <p class="table-hint">Report details and engagement leaderboard continue below.</p>
+            </section>
+          </main>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const frame = document.querySelector('#frame');
+    document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
+      const mobile = button.dataset.view === 'mobile';
+      frame.classList.toggle('is-mobile', mobile);
+      document.querySelectorAll('[data-view]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+    }));
+    const more = document.querySelector('#more');
+    const older = document.querySelectorAll('.older');
+    const olderHeading = document.querySelector('#older-heading');
+    more.addEventListener('click', () => {
+      const expanded = more.getAttribute('aria-expanded') !== 'true';
+      const selectedOlder = [...older].find(item => item.getAttribute('aria-current') === 'true');
+      more.setAttribute('aria-expanded', String(expanded));
+      more.firstChild.textContent = expanded ? 'Show fewer reports ' : `Show ${selectedOlder ? 3 : 4} older reports `;
+      olderHeading.hidden = !expanded && !selectedOlder;
+      olderHeading.textContent = expanded ? 'Earlier' : 'Selected from earlier';
+      older.forEach(item => { item.hidden = !expanded && item !== selectedOlder; });
+    });
+    document.querySelectorAll('.report').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('.report').forEach(item => item.removeAttribute('aria-current'));
+      button.setAttribute('aria-current', 'true');
+      document.querySelector('#selected-name').textContent = button.dataset.name;
+      document.querySelector('#selected-meta').textContent = `${button.dataset.range} scanned · Saved ${button.dataset.when.toLowerCase()}`;
+    }));
+  </script>
+</body>
+</html>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 
 import { EngagementDashboard } from "@/components/engagement-dashboard"
 import { readReport, reportPath } from "@/lib/report-store"
+import { SITE_URL } from "@/lib/site"
 
 export const dynamic = "force-dynamic"
 
@@ -16,6 +17,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   return {
     title: `${report.target.name} · Substack Engagers`,
     description: `See the engagement report for ${report.target.name}, generated ${date}.`,
+    alternates: { canonical: `${SITE_URL}${reportPath(handle, date, id)}` },
   }
 }
 

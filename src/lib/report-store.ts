@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import type { ScanReport } from "@/lib/substack/types"
@@ -16,6 +16,32 @@ function reportHandle(report: ScanReport) {
 
 export function reportPath(handle: string, date: string, id: string) {
   return `/r/${handle}/${date}/${id}`
+}
+
+export async function listReportPaths(): Promise<{ path: string; date: string }[]> {
+  let handles
+  try {
+    handles = await readdir(/*turbopackIgnore: true*/ reportsDirectory, { withFileTypes: true })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  }
+
+  const reports: { path: string; date: string }[] = []
+  for (const handle of handles) {
+    if (!handle.isDirectory() || !handlePattern.test(handle.name)) continue
+    const dates = await readdir(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ reportsDirectory, handle.name), { withFileTypes: true })
+    for (const date of dates) {
+      if (!date.isDirectory() || !datePattern.test(date.name)) continue
+      const files = await readdir(/*turbopackIgnore: true*/ path.join(/*turbopackIgnore: true*/ reportsDirectory, handle.name, date.name), { withFileTypes: true })
+      for (const file of files) {
+        if (!file.isFile() || !file.name.endsWith(".json")) continue
+        const id = file.name.slice(0, -5)
+        if (idPattern.test(id)) reports.push({ path: reportPath(handle.name, date.name, id), date: date.name })
+      }
+    }
+  }
+  return reports
 }
 
 export async function saveReport(report: ScanReport) {

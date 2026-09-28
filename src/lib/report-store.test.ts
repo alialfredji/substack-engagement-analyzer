@@ -18,7 +18,8 @@ describe("report store", () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "engagers-reports-"))
     directories.push(directory)
     process.env.REPORTS_DIR = directory
-    const { saveReport, readReport } = await import("./report-store")
+    const { saveReport, readReport, listReportPaths } = await import("./report-store")
+    expect(await listReportPaths()).toEqual([])
     const report = {
       target: {
         handle: "@Writer", userId: 42, name: "Writer", photoUrl: null,
@@ -43,5 +44,13 @@ describe("report store", () => {
     expect(second).not.toBe(first)
     expect(await readReport("writer", "2026-09-28", first.split("/").at(-1)!)).toEqual(report)
     expect(await readReport("..", "2026-09-28", first.split("/").at(-1)!)).toBeNull()
+    expect((await listReportPaths()).map(({ path }) => path).sort()).toEqual([first, second].sort())
+
+    const { default: sitemap } = await import("../app/sitemap")
+    expect((await sitemap()).map(({ url }) => url).sort()).toEqual([
+      "https://substack-engagers.alfredji.com",
+      `https://substack-engagers.alfredji.com${first}`,
+      `https://substack-engagers.alfredji.com${second}`,
+    ].sort())
   })
 })

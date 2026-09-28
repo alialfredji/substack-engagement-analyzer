@@ -8,6 +8,7 @@ node_modules
 .claude
 .pi
 docs
+video
 signal-map-video
 skills-lock.json
 *.log

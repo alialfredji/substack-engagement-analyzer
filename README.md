@@ -15,6 +15,8 @@ Open [http://localhost:3000](http://localhost:3000), paste a Substack profile or
 
 Each completed scan is saved on the server and gets a public URL such as `/r/alialfredji/2026-09-28/<id>`. **Share report** opens the device share sheet or copies that URL. Anyone with the URL can view the saved snapshot without rescanning. Reports generated before this feature remain in the browser only; rerun those scans to create a shareable report.
 
+Saved reports are listed automatically in the live `/sitemap.xml`, and `/robots.txt` points crawlers to it. Report pages use their public URL as the canonical URL. The sitemap reads the same persistent `REPORTS_DIR` as the report pages, so keep that volume across deployments. The canonical site origin is set in `src/lib/site.ts`; update it if the public hostname changes. Submit `https://substack-engagers.alfredji.com/sitemap.xml` in Google Search Console to monitor discovery and indexing. The sitemap currently uses one file, so split it if the collection approaches 50,000 URLs.
+
 Recent reports are also cached in your browser's local storage. The sidebar is specific to the browser and device. **Rerun fresh** bypasses the browser cache. Reaction and restack totals may exceed the number of public identities that Substack exposes; the report flags incomplete coverage.
 
 ## Google Analytics

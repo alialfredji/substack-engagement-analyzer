@@ -1,11 +1,11 @@
 "use client"
 
-import { useLayoutEffect, useMemo, useRef } from "react"
-import { ExternalLinkIcon, UsersRoundIcon } from "lucide-react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon, UsersRoundIcon } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Empty,
@@ -23,18 +23,24 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { MetricSet, PersonEngagement } from "@/lib/substack/types"
+import { initials } from "@/lib/initials"
 import { cn } from "@/lib/utils"
 
 export type ReportView = "combined" | "notes" | "articles"
+type SortKey = "reader" | keyof MetricSet | "lastCommentAt" | "lastSignalAt"
+type SortDirection = "asc" | "desc"
+export const PAGE_SIZE = 20
 
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-}
+const columns: { key: SortKey; label: string; numeric?: boolean }[] = [
+  { key: "reader", label: "Reader" },
+  { key: "score", label: "Score", numeric: true },
+  { key: "total", label: "Total", numeric: true },
+  { key: "likes", label: "Likes", numeric: true },
+  { key: "comments", label: "Comments", numeric: true },
+  { key: "restacks", label: "Restacks", numeric: true },
+  { key: "lastCommentAt", label: "Last comment" },
+  { key: "lastSignalAt", label: "Last signal" },
+]
 
 function formatDate(value: string | null) {
   if (!value) return "–"
@@ -54,10 +60,44 @@ function metricsFor(person: PersonEngagement, view: ReportView): MetricSet {
 interface EngagementTableProps {
   people: PersonEngagement[]
   view: ReportView
+  page: number
+  onPageChange: (page: number) => void
   isScanning?: boolean
 }
 
-export function EngagementTable({ people, view, isScanning = false }: EngagementTableProps) {
+interface EngagementPaginationProps {
+  total: number
+  page: number
+  onPageChange: (page: number) => void
+  position: "top" | "bottom"
+}
+
+export function EngagementPagination({ total, page, onPageChange, position }: EngagementPaginationProps) {
+  const pageCount = Math.ceil(total / PAGE_SIZE)
+  if (pageCount <= 1) return null
+
+  return (
+    <nav aria-label={`Leaderboard pagination ${position}`} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+      {position === "bottom" ? (
+        <span className="text-muted-foreground">
+          Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total} profiles
+        </span>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <Button type="button" variant="outline" size="icon" aria-label="Previous page" disabled={page === 1} onClick={() => onPageChange(page - 1)}>
+          <ChevronLeftIcon aria-hidden="true" />
+        </Button>
+        <span className="min-w-20 text-center tabular-nums" aria-live="polite">Page {page} of {pageCount}</span>
+        <Button type="button" variant="outline" size="icon" aria-label="Next page" disabled={page === pageCount} onClick={() => onPageChange(page + 1)}>
+          <ChevronRightIcon aria-hidden="true" />
+        </Button>
+      </div>
+    </nav>
+  )
+}
+
+export function EngagementTable({ people, view, page, onPageChange, isScanning = false }: EngagementTableProps) {
+  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: "score", direction: "desc" })
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const previousTops = useRef(new Map<number, number>())
   const visible = useMemo(() => people
@@ -65,14 +105,28 @@ export function EngagementTable({ people, view, isScanning = false }: Engagement
     .sort((a, b) => {
       const aMetrics = metricsFor(a, view)
       const bMetrics = metricsFor(b, view)
-      return bMetrics.score - aMetrics.score || bMetrics.total - aMetrics.total
-    }), [people, view])
+      let comparison: number
+
+      if (sort.key === "reader") comparison = a.name.localeCompare(b.name)
+      else if (sort.key === "lastCommentAt" || sort.key === "lastSignalAt") {
+        const aDate = a[sort.key]
+        const bDate = b[sort.key]
+        if (!aDate || !bDate) return aDate ? -1 : bDate ? 1 : 0
+        comparison = aDate.localeCompare(bDate)
+      } else comparison = aMetrics[sort.key] - bMetrics[sort.key]
+
+      return (sort.direction === "asc" ? comparison : -comparison)
+        || bMetrics.score - aMetrics.score
+        || bMetrics.total - aMetrics.total
+        || a.name.localeCompare(b.name)
+    }), [people, view, sort])
+  const pagePeople = useMemo(() => visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [visible, page])
 
   useLayoutEffect(() => {
     const nextTops = new Map<number, number>()
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
 
-    visible.forEach((person, index) => {
+    pagePeople.forEach((person, index) => {
       const row = rowRefs.current.get(person.id)
       if (!row) return
       row.getAnimations().forEach((animation) => animation.cancel())
@@ -95,7 +149,7 @@ export function EngagementTable({ people, view, isScanning = false }: Engagement
     })
 
     previousTops.current = nextTops
-  }, [visible, isScanning])
+  }, [pagePeople, isScanning])
 
   if (visible.length === 0) {
     if (isScanning) {
@@ -129,22 +183,45 @@ export function EngagementTable({ people, view, isScanning = false }: Engagement
   }
 
   return (
+    <div className="space-y-4">
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Reader</TableHead>
-          <TableHead className="text-right">Score</TableHead>
-          <TableHead className="text-right">Total</TableHead>
-          <TableHead className="text-right">Likes</TableHead>
-          <TableHead className="text-right">Comments</TableHead>
-          <TableHead className="text-right">Restacks</TableHead>
-          <TableHead>Last comment</TableHead>
-          <TableHead>Last signal</TableHead>
-          <TableHead className="text-right">Profile</TableHead>
+          {columns.map(({ key, label, numeric }) => {
+            const active = sort.key === key
+            const nextDirection = active && sort.direction === "asc" ? "descending" : "ascending"
+            const SortIcon = active ? sort.direction === "asc" ? ArrowUpIcon : ArrowDownIcon : ArrowUpDownIcon
+            return (
+              <TableHead
+                key={key}
+                className={numeric ? "text-right" : undefined}
+                aria-sort={active ? sort.direction === "asc" ? "ascending" : "descending" : "none"}
+              >
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex min-h-9 w-full items-center gap-1.5 rounded-sm text-left hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    numeric && "justify-end text-right",
+                  )}
+                  aria-label={`Sort by ${label}, ${nextDirection}`}
+                  onClick={() => {
+                    setSort((current) => ({
+                      key,
+                      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+                    }))
+                    onPageChange(1)
+                  }}
+                >
+                  {label}
+                  <SortIcon className={cn("size-3.5 shrink-0", !active && "text-muted-foreground/70")} aria-hidden="true" />
+                </button>
+              </TableHead>
+            )
+          })}
         </TableRow>
       </TableHeader>
       <TableBody>
-        {visible.map((person) => {
+        {pagePeople.map((person) => {
           const metrics = metricsFor(person, view)
           return (
             <TableRow
@@ -155,18 +232,23 @@ export function EngagementTable({ people, view, isScanning = false }: Engagement
               }}
             >
               <TableCell>
-                <div className="flex min-w-52 items-center gap-3">
+                <a
+                  href={person.profileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex min-w-52 items-center gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
                   <Avatar className="size-9">
                     {person.photoUrl ? <AvatarImage src={person.photoUrl} alt="" /> : null}
                     <AvatarFallback>{initials(person.name)}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{person.name}</p>
+                    <p className="truncate font-medium group-hover:underline group-focus-visible:underline">{person.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {person.handle ? `@${person.handle}` : person.writes ?? `ID ${person.id}`}
                     </p>
                   </div>
-                </div>
+                </a>
               </TableCell>
               <TableCell className="text-right">
                 <Badge variant="secondary">{metrics.score}</Badge>
@@ -177,21 +259,12 @@ export function EngagementTable({ people, view, isScanning = false }: Engagement
               <TableCell className="text-right font-mono">{metrics.restacks}</TableCell>
               <TableCell className="whitespace-nowrap">{formatDate(person.lastCommentAt)}</TableCell>
               <TableCell className="whitespace-nowrap">{formatDate(person.lastSignalAt)}</TableCell>
-              <TableCell className="text-right">
-                <a
-                  href={person.profileUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`Open ${person.name}'s Substack profile`}
-                  className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
-                >
-                  <ExternalLinkIcon data-icon="inline-start" />
-                </a>
-              </TableCell>
             </TableRow>
           )
         })}
       </TableBody>
     </Table>
+    <EngagementPagination total={visible.length} page={page} onPageChange={onPageChange} position="bottom" />
+    </div>
   )
 }

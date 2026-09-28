@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Engagement summary preview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #111111;
+        --card: #1b1b1b;
+        --border: #333333;
+        --foreground: #f5f5f5;
+        --muted: #a8a8a8;
+        --primary: #ff6719;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-width: 320px;
+        margin: 0;
+        background: var(--background);
+        color: var(--foreground);
+        font: 14px/1.45 Geist, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .preview {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: clamp(24px, 5vw, 72px) 24px;
+      }
+
+      .section-title {
+        margin: 0 0 16px;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+      }
+
+      .engagement-card { padding: 22px 24px 20px; }
+      .stat-card { padding: 22px 24px; }
+      .eyebrow { margin: 0; color: var(--muted); font-size: 13px; }
+
+      .main-number {
+        margin: 6px 0 20px;
+        font-size: clamp(36px, 4vw, 46px);
+        font-weight: 650;
+        letter-spacing: -0.055em;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat-number {
+        margin: 9px 0 0;
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: -0.045em;
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat-caption {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .distribution {
+        display: flex;
+        height: 8px;
+        overflow: hidden;
+        gap: 3px;
+        border-radius: 99px;
+        background: #292929;
+      }
+
+      .distribution span { display: block; height: 100%; }
+      .distribution .likes { width: 78%; background: var(--primary); }
+      .distribution .comments { width: 13.5%; background: #c7c7c7; }
+      .distribution .restacks { width: 8.5%; background: #777777; }
+
+      .breakdown {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin: 19px 0 0;
+      }
+
+      .breakdown div { min-width: 0; }
+      .breakdown dt {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .swatch { width: 7px; height: 7px; flex: none; border-radius: 2px; }
+      .swatch.likes { background: var(--primary); }
+      .swatch.comments { background: #c7c7c7; }
+      .swatch.restacks { background: #777777; }
+      .breakdown dd {
+        margin: 3px 0 0 14px;
+        font-size: 16px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .averages {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+        align-items: center;
+        min-height: 90px;
+        padding: 18px 24px;
+      }
+
+      .averages-title { margin: 0; font-size: 13px; font-weight: 600; }
+      .averages-caption { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+      .average { padding-left: 24px; border-left: 1px solid var(--border); }
+      .average dt { color: var(--muted); font-size: 12px; }
+      .average dd {
+        margin: 2px 0 0;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+      }
+
+      @media (max-width: 760px) {
+        .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .engagement-card, .averages { grid-column: 1 / -1; }
+        .averages { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 16px; }
+        .averages-heading { grid-column: 1 / -1; }
+        .average:first-of-type { padding-left: 0; border-left: 0; }
+      }
+
+      @media (max-width: 440px) {
+        .preview { padding: 28px 16px; }
+        .engagement-card, .stat-card, .averages { padding: 18px; }
+        .stat-number { font-size: 26px; }
+        .stat-caption { line-height: 1.3; }
+        .averages { gap: 12px; }
+        .average { padding-left: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="preview">
+      <section class="summary" aria-label="Scan summary">
+        <div class="card engagement-card">
+          <p class="eyebrow">Total engagements</p>
+          <p class="main-number">1,462</p>
+          <div class="distribution" role="img" aria-label="1,140 likes, 197 comments, and 125 restacks">
+            <span class="likes"></span><span class="comments"></span><span class="restacks"></span>
+          </div>
+          <dl class="breakdown">
+            <div><dt><span class="swatch likes" aria-hidden="true"></span>Likes</dt><dd>1,140</dd></div>
+            <div><dt><span class="swatch comments" aria-hidden="true"></span>Comments</dt><dd>197</dd></div>
+            <div><dt><span class="swatch restacks" aria-hidden="true"></span>Restacks</dt><dd>125</dd></div>
+          </dl>
+        </div>
+
+        <div class="card stat-card">
+          <p class="eyebrow">Engagers</p>
+          <p class="stat-number">466</p>
+          <p class="stat-caption">People who interacted</p>
+        </div>
+
+        <div class="card stat-card">
+          <p class="eyebrow">Content scanned</p>
+          <p class="stat-number">79</p>
+          <p class="stat-caption">Notes and articles</p>
+        </div>
+
+        <div class="card averages">
+          <div class="averages-heading">
+            <p class="averages-title">Average per content</p>
+            <p class="averages-caption">Across 79 notes and articles</p>
+          </div>
+          <dl class="average"><dt>Likes</dt><dd>14.4</dd></dl>
+          <dl class="average"><dt>Comments</dt><dd>2.5</dd></dl>
+          <dl class="average"><dt>Restacks</dt><dd>1.6</dd></dl>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
